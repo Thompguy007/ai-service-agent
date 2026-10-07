@@ -1,0 +1,41 @@
+from main import get_available_slots, book_appointment, reschedule_appointment
+
+
+def test_get_available_slots():
+    result = get_available_slots("2026-10-05")
+
+    assert "14:00" not in result["available_slots"]
+
+    print("PASS: 14:00 is correctly unavailable")
+
+def test_free_slot_is_available():
+    result = get_available_slots("2026-10-05")
+
+    assert "13:00" in result["available_slots"]
+
+    print("PASS: 13:00 is correctly available")
+
+def test_double_booking_is_blocked():
+    result = book_appointment(
+        customer_id=1,
+        appointment_date="2026-10-05",
+        appointment_time="14:00",
+        service_type="Brake Check"
+    )
+
+    assert result["success"] is False
+
+    print("PASS: double booking is correctly blocked")
+
+def test_reschedule_to_booked_slot_is_blocked():
+    result = reschedule_appointment(
+        appointment_id=2,
+        new_date="2026-10-05",
+        new_time="14:00"
+    )
+
+    assert result["success"] is False
+
+    print("PASS: reschedule to booked slot is correctly blocked")
+
+test_reschedule_to_booked_slot_is_blocked()

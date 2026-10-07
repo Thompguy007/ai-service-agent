@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Pytest cache
+.pytest_cache/
+
+# Local database
+service_agent.db
