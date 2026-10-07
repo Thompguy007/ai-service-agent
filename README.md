@@ -109,7 +109,8 @@ Current result:
 ### 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Thompguy007/ai-service-agent.git
+
 cd ai-service-agent
 ```
 
@@ -141,7 +142,14 @@ ANTHROPIC_API_KEY=your_api_key_here
 
 Never commit the `.env` file.
 
-### 5. Start the API
+### 5. Seed the demo database
+
+Create the demo customers and appointments:
+
+```bash
+python seed.py
+
+### 6. Start the API
 
 ```bash
 fastapi dev main.py

@@ -29,7 +29,7 @@ def test_double_booking_is_blocked():
 
 def test_reschedule_to_booked_slot_is_blocked():
     result = reschedule_appointment(
-        appointment_id=2,
+        appointment_id=1,
         new_date="2026-10-05",
         new_time="14:00"
     )
@@ -37,5 +37,3 @@ def test_reschedule_to_booked_slot_is_blocked():
     assert result["success"] is False
 
     print("PASS: reschedule to booked slot is correctly blocked")
-
-test_reschedule_to_booked_slot_is_blocked()
