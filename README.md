@@ -16,6 +16,7 @@ The project focuses on:
 - API and database integration
 - Error handling and debugging
 - Automated testing of agent behavior
+- Structured logging and observability of agent steps, tool calls, and tool results
 
 ## Architecture
 
@@ -60,7 +61,7 @@ Claude decides which tool to call, but the Python backend validates and performs
 
 Examples:
 
-- A time slot cannot be double-booked.
+- A time slot cannot be double-booked. This is enforced both by application-level validation and by a database-level unique constraint for active bookings.
 - An appointment cannot be rescheduled to an occupied time slot.
 - Availability is calculated from the database rather than invented by the LLM.
 - Unknown tool calls are rejected.
@@ -81,6 +82,11 @@ Current test coverage includes:
 - Retrieval of real customer appointments
 - Unknown-customer behavior
 - Verification that the agent does not create a second booking in an occupied slot
+- Agent evaluation scenarios for paraphrased requests and natural-language understanding
+- Safety evaluation for requests with missing information
+- Evaluation of double-booking prevention through the agent
+- Multi-step evaluation of appointment rescheduling
+- Isolated test database state for every test
 
 Run the test suite with:
 
@@ -91,7 +97,7 @@ pytest -v
 Current result:
 
 ```text
-7 passed
+13 passed
 ```
 
 
@@ -148,6 +154,7 @@ Create the demo customers and appointments:
 
 ```bash
 python seed.py
+```
 
 ### 6. Start the API
 
