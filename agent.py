@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
@@ -9,6 +10,13 @@ from tools import (
     reschedule_appointment,
     cancel_appointment
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -134,7 +142,7 @@ def run_agent(message: str):
 
     for step in range(5):
     
-            print(f"\n--- AGENT STEP {step + 1} ---")
+            logger.info("Agent step %s started", step + 1)
     
             response = client.messages.create(
                 model="claude-sonnet-5",
@@ -150,14 +158,15 @@ def run_agent(message: str):
                 messages=messages
             )
     
-            print("Stop reason:", response.stop_reason)
+            logger.info("Claude stop reason: %s", response.stop_reason)
     
             for block in response.content:
-                print("Block type:", block.type)
-    
                 if block.type == "tool_use":
-                    print("Tool:", block.name)
-                    print("Input:", block.input)
+                    logger.info(
+                        "tool called: %s | input=%s",
+                        block.name,
+                        block.input
+                    )
     
             # Hvis Claude ikke vil bruge et tool,
             # har vi det endelige svar
@@ -225,7 +234,11 @@ def run_agent(message: str):
                         "success": False,
                         "error": "Unknown tool"
                     }
-    
+                logger.info(
+                    "Tool completed: %s | result=%s",
+                    tool_use.name,
+                    tool_result
+)
                 # Gem resultatet fra DETTE tool
                 tool_results.append({
                     "type": "tool_result",
