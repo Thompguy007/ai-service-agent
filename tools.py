@@ -1,4 +1,5 @@
 from database import get_connection
+import sqlite3
 
 def get_available_slots(appointment_date: str):
     available_times = [
@@ -116,26 +117,36 @@ def book_appointment(
         }
 
 
-    cursor.execute(
-        """
-        INSERT INTO appointments (
-            customer_id,
-            appointment_date,
-            appointment_time,
-            service_type
+    try:
+        cursor.execute(
+            """
+            INSERT INTO appointments (
+                customer_id,
+                appointment_date,
+                appointment_time,
+                service_type
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                customer_id,
+                appointment_date,
+                appointment_time,
+                service_type
+            )
         )
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            customer_id,
-            appointment_date,
-            appointment_time,
-            service_type
-        )
-    )
 
-    connection.commit()
-    appointment_id = cursor.lastrowid
+        connection.commit()
+        appointment_id = cursor.lastrowid
+
+    except sqlite3.IntegrityError:
+        connection.close()
+
+        return {
+            "success": False,
+            "error": "This time slot is already booked"
+        }
+
     connection.close()
 
     return {

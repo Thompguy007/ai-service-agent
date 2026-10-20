@@ -1,5 +1,5 @@
 from main import get_available_slots, book_appointment, reschedule_appointment
-
+import sqlite3
 
 def test_get_available_slots():
     result = get_available_slots("2026-10-05")
@@ -37,3 +37,32 @@ def test_reschedule_to_booked_slot_is_blocked():
     assert result["success"] is False
 
     print("PASS: reschedule to booked slot is correctly blocked")
+
+def test_database_blocks_double_booking():
+    connection = sqlite3.connect("test_service_agent.db")
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            """
+            INSERT INTO appointments (
+                customer_id,
+                appointment_date,
+                appointment_time,
+                service_type,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (1, "2026-10-05", "14:00", "Brake Check", "booked")
+        )
+
+        connection.commit()
+
+        assert False, "Database allowed a double booking"
+
+    except sqlite3.IntegrityError:
+        pass
+
+    finally:
+        connection.close()

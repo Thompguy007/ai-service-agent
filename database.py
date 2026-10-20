@@ -30,6 +30,11 @@ def create_database():
         FOREIGN KEY (customer_id) REFERENCES customers (id)
     )
 """)
+    cursor.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_booked_slot
+    ON appointments (appointment_date, appointment_time)
+    WHERE status = 'booked'
+""")
 
     connection.commit()
     connection.close()
