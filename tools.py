@@ -1,5 +1,20 @@
 from database import get_connection
 import sqlite3
+from datetime import datetime
+
+def is_valid_date(date_string: str):
+    try:
+        datetime.strptime(date_string, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+def is_valid_time(time_string: str):
+    try:
+        datetime.strptime(time_string, "%H:%M")
+        return True
+    except ValueError:
+        return False
 
 def get_available_slots(appointment_date: str):
     available_times = [
@@ -91,6 +106,17 @@ def book_appointment(
     appointment_time: str,
     service_type: str
 ):
+    if not is_valid_date(appointment_date):
+        return {
+            "success": False,
+            "error": "Invalid appointment date. Use YYYY-MM-DD."
+        }
+
+    if not is_valid_time(appointment_time):
+        return {
+            "success": False,
+            "error": "Invalid appointment time. Use HH:MM."
+        }
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -164,6 +190,17 @@ def reschedule_appointment(
     new_date: str,
     new_time: str
 ):
+    if not is_valid_date(new_date):
+        return {
+            "success": False,
+            "error": "Invalid appointment date. Use YYYY-MM-DD."
+        }
+
+    if not is_valid_time(new_time):
+        return {
+            "success": False,
+            "error": "Invalid appointment time. Use HH:MM."
+        }
     connection = get_connection()
     cursor = connection.cursor()
 

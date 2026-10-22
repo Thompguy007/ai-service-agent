@@ -66,3 +66,25 @@ def test_database_blocks_double_booking():
 
     finally:
         connection.close()
+
+def test_booking_rejects_invalid_date():
+    result = book_appointment(
+        customer_id=1,
+        appointment_date="2026-02-31",
+        appointment_time="13:00",
+        service_type="Oil Change"
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Invalid appointment date. Use YYYY-MM-DD."
+
+def test_booking_rejects_invalid_time():
+    result = book_appointment(
+        customer_id=1,
+        appointment_date="2026-10-25",
+        appointment_time="27:83",
+        service_type="Oil_Change"
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Invalid appointment time. Use HH:MM."
