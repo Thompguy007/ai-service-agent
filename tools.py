@@ -168,6 +168,7 @@ def reschedule_appointment(
     cursor = connection.cursor()
 
     # Check om det nye tidspunkt allerede er optaget
+
     cursor.execute(
         """
         SELECT id
@@ -188,16 +189,25 @@ def reschedule_appointment(
             "error": "The requested time slot is already booked"
         }
 
-    cursor.execute(
-    """
-    UPDATE appointments
-    SET appointment_date = ?,
-        appointment_time = ?
-    WHERE id = ?
-    AND status = 'booked'
-    """,
-    (new_date, new_time, appointment_id)
-)
+    try:
+        cursor.execute(
+            """
+            UPDATE appointments
+            SET appointment_date = ?,
+                appointment_time = ?
+            WHERE id = ?
+            AND status = 'booked'
+            """,
+            (new_date, new_time, appointment_id)
+        )
+
+    except sqlite3.IntegrityError:
+        connection.close()
+
+        return {
+            "success": False,
+            "error": "The requested time slot is already booked"
+        }
 
     connection.commit()
     if cursor.rowcount == 0:
