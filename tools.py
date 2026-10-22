@@ -16,6 +16,21 @@ def is_valid_time(time_string: str):
     except ValueError:
         return False
 
+def is_allowed_booking_time(time_string: str):
+    allowed_times = [
+        "08:00",
+        "09:00",
+        "10:00",
+        "11:00",
+        "12:00",
+        "13:00",
+        "14:00",
+        "15:00",
+        "16:00"
+    ]
+
+    return time_string in allowed_times
+
 def get_available_slots(appointment_date: str):
     available_times = [
         "08:00",
@@ -117,6 +132,15 @@ def book_appointment(
             "success": False,
             "error": "Invalid appointment time. Use HH:MM."
         }
+
+    if not is_allowed_booking_time(appointment_time):
+        return{
+            "success": False,
+            "error": "Appointment time must be between 08:00 and 16:00 on the hour."
+        }
+
+
+    
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -201,6 +225,14 @@ def reschedule_appointment(
             "success": False,
             "error": "Invalid appointment time. Use HH:MM."
         }
+
+    if not is_allowed_booking_time(new_time):
+        return {
+            "success": False,
+            "error": "Appointment time must be between 08:00 and 16:00 on the hour."
+        }
+
+    
     connection = get_connection()
     cursor = connection.cursor()
 

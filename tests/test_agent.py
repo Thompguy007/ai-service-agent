@@ -88,3 +88,16 @@ def test_booking_rejects_invalid_time():
 
     assert result["success"] is False
     assert result["error"] == "Invalid appointment time. Use HH:MM."
+
+def test_booking_rejects_time_outside_allowed_slots():
+    result = book_appointment(
+        customer_id=1,
+        appointment_date="2026-10-25",
+        appointment_time="03:00",
+        service_type="Oil Change"
+    )
+
+    assert result["success"] is False
+    assert result["error"] == (
+        "Appointment time must be between 08:00 and 16:00 on the hour."
+    )
