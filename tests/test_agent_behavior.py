@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from main import app
-import sqlite3
+from database import get_connection
 
 client = TestClient(app)
 
@@ -58,7 +58,7 @@ def test_agent_handles_booked_slot_safely():
     print(agent_response)
 
     assert "14:00" in agent_response
-    connection = sqlite3.connect("service_agent.db")
+    connection = get_connection()
     cursor = connection.cursor()
     cursor.execute(
     """
