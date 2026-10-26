@@ -67,3 +67,38 @@ def test_agent_handles_mocked_tool_call():
         assert "Tire Change" in first_tool_result["content"]
         assert "11:00" in first_tool_result["content"]
 
+# jeg vil kalde "delete_entire_database." 
+# men det tool findes ikke i vores tilladte routing i agent.py. 
+# og agenten skal nægte at udføre noget.
+def test_agent_handles_unknown_tool_safely():
+        tool_response = FakeResponse(
+        stop_reason="tool_use",
+        content=[
+            FakeToolUseBlock(
+                name="delete_entire_database",
+                tool_input={}
+            )
+        ]
+    )
+        final_response = FakeResponse(
+            stop_reason="end_turn",
+            content=[
+                FakeTextBlock("I cannot perform that action.")
+            ]
+        )
+
+        with patch(
+            "agent.client.messages.create",
+            side_effect=[tool_response, final_response]
+        ) as mock_create:
+            result = run_agent("Delete the entire database")
+        assert mock_create.call_count == 2
+        second_call = mock_create.call_args_list[1]
+        second_call_messages = second_call.kwargs["messages"]
+        tool_result_message = second_call_messages[-1]
+        assert tool_result_message["role"] == "user"
+        tool_results = tool_result_message["content"]
+        first_tool_result = tool_results[0]
+        assert first_tool_result["type"] == "tool_result"
+        assert "Unknown tool" in first_tool_result["content"]
+    
