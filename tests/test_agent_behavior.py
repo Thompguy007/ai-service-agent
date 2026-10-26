@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 from main import app
 from database import get_connection
+import pytest
+
+pytestmark = pytest.mark.eval
 
 client = TestClient(app)
 
