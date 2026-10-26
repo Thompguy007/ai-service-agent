@@ -101,4 +101,32 @@ def test_agent_handles_unknown_tool_safely():
         first_tool_result = tool_results[0]
         assert first_tool_result["type"] == "tool_result"
         assert "Unknown tool" in first_tool_result["content"]
-    
+
+def test_agent_handles_missing_tool_arguments_safely():
+    tool_response = FakeResponse(
+        stop_reason="tool_use",
+        content=[
+            FakeToolUseBlock(
+                name="book_appointment",
+                tool_input={
+                    "appointment_date": "2026-11-10",
+                    "appointment_time": "10:00"
+                }
+            )
+        ]
+    )
+
+    final_response = FakeResponse(
+        stop_reason="end_turn",
+        content=[
+            FakeTextBlock("I need more information before i can book the appointment.")
+        ]
+    )
+
+    with patch(
+        "agent.client.messages.create",
+        side_effect=[tool_response, final_response]
+    ):
+        result = run_agent("Book me an appointment")
+
+        assert result["response"] == "I need more information before i can book the appointment."

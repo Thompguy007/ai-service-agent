@@ -198,42 +198,47 @@ def run_agent(message: str):
     
             # Kør ALLE tools
             for tool_use in tool_uses:
-    
-                if tool_use.name == "get_customer_appointments":
-                    tool_result = get_customer_appointments(
-                        tool_use.input["customer_name"]
-                    )
-    
-                elif tool_use.name == "book_appointment":
-                    tool_result = book_appointment(
-                        customer_id=tool_use.input["customer_id"],
-                        appointment_date=tool_use.input["appointment_date"],
-                        appointment_time=tool_use.input["appointment_time"],
-                        service_type=tool_use.input["service_type"]
-                    )
-    
-                elif tool_use.name == "get_available_slots":
-                    tool_result = get_available_slots(
-                        tool_use.input["appointment_date"]
-                    )
-    
-                elif tool_use.name == "cancel_appointment":
-                    tool_result = cancel_appointment(
-                        tool_use.input["appointment_id"]
-        )
-    
-                elif tool_use.name == "reschedule_appointment":
-                    tool_result = reschedule_appointment(
-                        appointment_id=tool_use.input["appointment_id"],
-                        new_date=tool_use.input["new_date"],
-                        new_time=tool_use.input["new_time"]
-        )
-    
-                else:
+                try:
+                    if tool_use.name == "get_customer_appointments":
+                        tool_result = get_customer_appointments(
+                            tool_use.input["customer_name"]
+                            )
+        
+                    elif tool_use.name == "book_appointment":
+                        tool_result = book_appointment(
+                            customer_id=tool_use.input["customer_id"],
+                            appointment_date=tool_use.input["appointment_date"],
+                            appointment_time=tool_use.input["appointment_time"],
+                            service_type=tool_use.input["service_type"]
+                        )
+        
+                    elif tool_use.name == "get_available_slots":
+                        tool_result = get_available_slots(
+                            tool_use.input["appointment_date"]
+                        )
+        
+                    elif tool_use.name == "cancel_appointment":
+                        tool_result = cancel_appointment(
+                            tool_use.input["appointment_id"]
+            )
+        
+                    elif tool_use.name == "reschedule_appointment":
+                        tool_result = reschedule_appointment(
+                            appointment_id=tool_use.input["appointment_id"],
+                            new_date=tool_use.input["new_date"],
+                            new_time=tool_use.input["new_time"]
+            )
+                    # Hvis Claude forsøger at kalde et tool, som hvores agent ikke kender/tillader, udfører vi ingenting, og sender en kontrolleret fejl tilbage.
+                    else:
+                        tool_result = {
+                            "success": False,
+                            "error": "Unknown tool"
+                        }
+                except KeyError as error:
                     tool_result = {
                         "success": False,
-                        "error": "Unknown tool"
-                    }
+                        "error": f"Missing required tool argument: {error.args[0]}"
+                }
                 logger.info(
                     "Tool completed: %s | result=%s",
                     tool_use.name,
