@@ -11,6 +11,13 @@ from tools import (
     cancel_appointment
 )
 
+TOOL_REGISTRY = {
+    "get_customer_appointments": get_customer_appointments,
+    "get_available_slots": get_available_slots,
+    "book_appointment": book_appointment,
+    "reschedule_appointment": reschedule_appointment,
+    "cancel_appointment": cancel_appointment,
+}
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -199,45 +206,19 @@ def run_agent(message: str):
             # Kør ALLE tools
             for tool_use in tool_uses:
                 try:
-                    if tool_use.name == "get_customer_appointments":
-                        tool_result = get_customer_appointments(
-                            tool_use.input["customer_name"]
-                            )
-        
-                    elif tool_use.name == "book_appointment":
-                        tool_result = book_appointment(
-                            customer_id=tool_use.input["customer_id"],
-                            appointment_date=tool_use.input["appointment_date"],
-                            appointment_time=tool_use.input["appointment_time"],
-                            service_type=tool_use.input["service_type"]
-                        )
-        
-                    elif tool_use.name == "get_available_slots":
-                        tool_result = get_available_slots(
-                            tool_use.input["appointment_date"]
-                        )
-        
-                    elif tool_use.name == "cancel_appointment":
-                        tool_result = cancel_appointment(
-                            tool_use.input["appointment_id"]
-            )
-        
-                    elif tool_use.name == "reschedule_appointment":
-                        tool_result = reschedule_appointment(
-                            appointment_id=tool_use.input["appointment_id"],
-                            new_date=tool_use.input["new_date"],
-                            new_time=tool_use.input["new_time"]
-            )
-                    # Hvis Claude forsøger at kalde et tool, som hvores agent ikke kender/tillader, udfører vi ingenting, og sender en kontrolleret fejl tilbage.
+                    tool_function = TOOL_REGISTRY.get(tool_use.name)
+                    if tool_function is None:
+                         tool_result = {
+                              "success": False,
+                              "error": "Unknown tool"
+                         }
                     else:
-                        tool_result = {
-                            "success": False,
-                            "error": "Unknown tool"
-                        }
-                except KeyError as error:
+                         tool_result = tool_function(**tool_use.input)
+
+                except TypeError as error:
                     tool_result = {
                         "success": False,
-                        "error": f"Missing required tool argument: {error.args[0]}"
+                        "error": f"Invalid tool arguments: {error}"
                 }
                 logger.info(
                     "Tool completed: %s | result=%s",
