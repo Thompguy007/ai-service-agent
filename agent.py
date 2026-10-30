@@ -185,7 +185,8 @@ def run_agent(message: str):
                 ]
     
                 return {
-                    "response": "\n".join(text_blocks)
+                    "response": "\n".join(text_blocks),
+                    "steps": step + 1
                 }
     
             # Gem Claudes tool requests i samtalen

@@ -130,3 +130,44 @@ def test_agent_handles_missing_tool_arguments_safely():
         result = run_agent("Book me an appointment")
 
         assert result["response"] == "I need more information before i can book the appointment."
+
+def test_agent_reports_step_count():
+    final_response = FakeResponse(
+        stop_reason="end_turn",
+        content=[
+            FakeTextBlock("Hello! How can i help you?")
+        ]
+    )
+
+    with patch(
+        "agent.client.messages.create",
+        return_value=final_response
+    ):
+        result = run_agent("Hello")
+    assert result["steps"] == 1
+
+def test_agent_reports_two_steps_after_tool_call():
+    tool_response = FakeResponse(
+        stop_reason="tool_use",
+        content=[
+            FakeToolUseBlock(
+                name="get_customer_appointments",
+                tool_input={"customer_name": "Mike"}
+            )
+        ]
+    )
+
+    final_response = FakeResponse(
+        stop_reason="end_turn",
+        content=[
+            FakeTextBlock("Mike has an appointment.")
+        ]
+    )
+
+    with patch(
+        "agent.client.messages.create",
+        side_effect=[tool_response, final_response]
+    ):
+        result = run_agent("What appointments does Mike have?")
+
+    assert result["steps"] == 2
