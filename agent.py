@@ -147,6 +147,8 @@ def run_agent(message: str):
 
     ]
 
+    tools_used = []
+
     for step in range(5):
     
             logger.info("Agent step %s started", step + 1)
@@ -186,7 +188,8 @@ def run_agent(message: str):
     
                 return {
                     "response": "\n".join(text_blocks),
-                    "steps": step + 1
+                    "steps": step + 1,
+                    "tools_used": tools_used
                 }
     
             # Gem Claudes tool requests i samtalen
@@ -206,6 +209,8 @@ def run_agent(message: str):
     
             # Kør ALLE tools
             for tool_use in tool_uses:
+                tools_used.append(tool_use.name)
+
                 try:
                     tool_function = TOOL_REGISTRY.get(tool_use.name)
                     if tool_function is None:
