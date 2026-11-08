@@ -12,6 +12,57 @@ from tools import (
     reschedule_appointment,
     cancel_appointment
 )
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+from auth import verify_access_token
+from auth import authenticate_customer, create_access_token
+
+security = HTTPBearer()
+
+
+def get_current_customer(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> int:
+
+    token = credentials.credentials
+
+    customer_id = verify_access_token(token)
+
+    if customer_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM customers
+            WHERE id = ?
+            """,
+            (customer_id,)
+        )
+
+        customer = cursor.fetchone()
+
+    finally:
+        connection.close()
+
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Customer no longer exists",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    return customer_id
 
 
 load_dotenv()
@@ -37,6 +88,10 @@ class Appointment(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 def delete_customer(customer_id: int):
     connection = get_connection()
@@ -199,6 +254,33 @@ def test_claude():
         "response": message.content[0].text
     }
 
+@app.post("/login")
+def login(request: LoginRequest):
+    customer_id = authenticate_customer(
+        email=request.email,
+        password=request.password
+    )
+
+    if customer_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    access_token = create_access_token(customer_id)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+
 @app.post("/chat")
-def chat(request: ChatRequest):
-    return run_agent(request.message)
+def chat(
+    request: ChatRequest,
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    return run_agent(
+        message=request.message,
+        authenticated_customer_id=authenticated_customer_id
+    )

@@ -212,8 +212,15 @@ def book_appointment(
 def reschedule_appointment(
     appointment_id: int,
     new_date: str,
-    new_time: str
+    new_time: str,
+    authenticated_customer_id: int | None = None
 ):
+    # Reject rescheduling without verified identity
+    if authenticated_customer_id is None:
+        return {
+            "success": False,
+            "error": "Authentication required"
+        }
     if not is_valid_date(new_date):
         return {
             "success": False,
@@ -265,9 +272,15 @@ def reschedule_appointment(
             SET appointment_date = ?,
                 appointment_time = ?
             WHERE id = ?
+            AND customer_id = ?
             AND status = 'booked'
             """,
-            (new_date, new_time, appointment_id)
+            (
+                new_date,
+                new_time,
+                appointment_id,
+                authenticated_customer_id
+            )
         )
 
     except sqlite3.IntegrityError:
@@ -295,7 +308,17 @@ def reschedule_appointment(
         "new_date": new_date,
         "new_time": new_time
     }
-def cancel_appointment(appointment_id: int):
+def cancel_appointment(
+    appointment_id: int,
+    authenticated_customer_id: int | None = None
+):
+    # Reject cancellation when no verified identity is provided
+    if authenticated_customer_id is None:
+        return {
+            "success": False,
+            "error": "Authentication required"
+        }
+
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -304,9 +327,10 @@ def cancel_appointment(appointment_id: int):
         SELECT id, status
         FROM appointments
         WHERE id = ?
-        """,
-        (appointment_id,)
-    )
+        AND customer_id = ?
+    """,
+        (appointment_id, authenticated_customer_id)
+)
 
     appointment = cursor.fetchone()
 
@@ -325,16 +349,28 @@ def cancel_appointment(appointment_id: int):
         }
 
     cursor.execute(
-        """
-        UPDATE appointments
-        SET status = 'cancelled'
-        WHERE id = ?
-        """,
-        (appointment_id,)
-    )
+    """
+    UPDATE appointments
+    SET status = 'cancelled'
+    WHERE id = ?
+    AND customer_id = ?
+    AND status = 'booked'
+    """,
+    (appointment_id, authenticated_customer_id)
+)
+
+        # Check how many appointments were actually updated
+    updated_rows = cursor.rowcount
 
     connection.commit()
     connection.close()
+
+    # Only report success if exactly one appointment was cancelled
+    if updated_rows != 1:
+        return {
+            "success": False,
+            "error": "Appointment could not be cancelled"
+        }
 
     return {
         "success": True,

@@ -137,7 +137,33 @@ appointment_tools = [
 
 ]  # ← lukker appointment_tools-listen
 
-def run_agent(message: str):
+def execute_tool(
+    tool_name: str,
+    tool_input: dict,
+    authenticated_customer_id: int | None = None
+):
+    tool_function = TOOL_REGISTRY.get(tool_name)
+
+    if tool_function is None:
+        return {
+            "success": False,
+            "error": "Unknown tool"
+        }
+
+    tool_arguments = dict(tool_input)
+
+    if tool_name in {
+        "cancel_appointment",
+        "reschedule_appointment"
+    }:
+        tool_arguments["authenticated_customer_id"] = authenticated_customer_id
+
+    return tool_function(**tool_arguments)
+
+def run_agent(
+    message: str,
+    authenticated_customer_id: int | None = None
+):
 
     messages = [
         {
@@ -212,20 +238,17 @@ def run_agent(message: str):
                 tools_used.append(tool_use.name)
 
                 try:
-                    tool_function = TOOL_REGISTRY.get(tool_use.name)
-                    if tool_function is None:
-                         tool_result = {
-                              "success": False,
-                              "error": "Unknown tool"
-                         }
-                    else:
-                         tool_result = tool_function(**tool_use.input)
+                    tool_result = execute_tool(
+                        tool_name=tool_use.name,
+                        tool_input=tool_use.input,
+                        authenticated_customer_id=authenticated_customer_id
+                    )
 
                 except TypeError as error:
                     tool_result = {
                         "success": False,
                         "error": f"Invalid tool arguments: {error}"
-                }
+                    }
                 logger.info(
                     "Tool completed: %s | result=%s",
                     tool_use.name,
