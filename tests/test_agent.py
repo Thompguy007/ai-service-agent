@@ -1,5 +1,6 @@
 from main import get_available_slots, book_appointment, reschedule_appointment
 import sqlite3
+from database import get_connection
 
 def test_get_available_slots():
     result = get_available_slots("2026-10-05")
@@ -20,7 +21,8 @@ def test_double_booking_is_blocked():
         customer_id=1,
         appointment_date="2026-10-05",
         appointment_time="14:00",
-        service_type="Brake Check"
+        service_type="Brake Check",
+        authenticated_customer_id=1
     )
 
     assert result["success"] is False
@@ -39,7 +41,7 @@ def test_reschedule_to_booked_slot_is_blocked():
     print("PASS: reschedule to booked slot is correctly blocked")
 
 def test_database_blocks_double_booking():
-    connection = sqlite3.connect("test_service_agent.db")
+    connection = get_connection()
     cursor = connection.cursor()
 
     try:
@@ -72,7 +74,8 @@ def test_booking_rejects_invalid_date():
         customer_id=1,
         appointment_date="2026-02-31",
         appointment_time="13:00",
-        service_type="Oil Change"
+        service_type="Oil Change",
+        authenticated_customer_id=1
     )
 
     assert result["success"] is False
@@ -83,7 +86,8 @@ def test_booking_rejects_invalid_time():
         customer_id=1,
         appointment_date="2026-10-25",
         appointment_time="27:83",
-        service_type="Oil_Change"
+        service_type="Oil_Change",
+        authenticated_customer_id=1
     )
 
     assert result["success"] is False
@@ -94,7 +98,8 @@ def test_booking_rejects_time_outside_allowed_slots():
         customer_id=1,
         appointment_date="2026-10-25",
         appointment_time="03:00",
-        service_type="Oil Change"
+        service_type="Oil Change",
+        authenticated_customer_id=1
     )
 
     assert result["success"] is False

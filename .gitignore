@@ -16,3 +16,4 @@ __pycache__/
 service_agent.db
 
 .env
+*.db

@@ -152,10 +152,22 @@ def execute_tool(
 
     tool_arguments = dict(tool_input)
 
-    if tool_name in {
+    # These tools require an authenticated customer
+    protected_tools = {
+        "get_customer_appointments",
+        "book_appointment",
         "cancel_appointment",
         "reschedule_appointment"
-    }:
+    }
+
+    if tool_name in protected_tools:
+        if authenticated_customer_id is None:
+            return {
+                "success": False,
+                "error": "Authentication required"
+            }
+
+        # Never trust customer identity supplied by the AI model
         tool_arguments["authenticated_customer_id"] = authenticated_customer_id
 
     return tool_function(**tool_arguments)

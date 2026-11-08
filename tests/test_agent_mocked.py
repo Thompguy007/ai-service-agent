@@ -53,7 +53,10 @@ def test_agent_handles_mocked_tool_call():
         "agent.client.messages.create",
         side_effect=[tool_response, final_response]
     ) as mock_create:
-        result = run_agent("Hi i'm Mike. What appointments do I have?")
+        result = run_agent(
+        "Hi i'm Mike. What appointments do I have?",
+        authenticated_customer_id=1
+)
 
         assert mock_create.call_count == 2
         second_call = mock_create.call_args_list[1]

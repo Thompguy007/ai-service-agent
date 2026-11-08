@@ -73,45 +73,57 @@ def get_available_slots(appointment_date: str):
         "available_slots": free_times
     }
 
-def get_customer_appointments(customer_name: str):
+def get_customer_appointments(
+    customer_name: str,
+    authenticated_customer_id: int | None = None
+):
+    if authenticated_customer_id is None:
+        return {
+            "success": False,
+            "error": "Authentication required"
+        }
+
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT
-            appointments.id,
-            customers.id,
-            customers.name,
-            customers.vehicle,
-            appointments.appointment_date,
-            appointments.appointment_time,
-            appointments.service_type,
-            appointments.status
-        FROM customers
-        JOIN appointments
-            ON customers.id = appointments.customer_id
-        WHERE LOWER(customers.name) = LOWER(?)
-        """,
-        (customer_name,)
-    )
+    try:
+        cursor.execute(
+            """
+            SELECT
+                appointments.id,
+                customers.id,
+                customers.name,
+                customers.vehicle,
+                appointments.appointment_date,
+                appointments.appointment_time,
+                appointments.service_type,
+                appointments.status
+            FROM customers
+            JOIN appointments
+                ON customers.id = appointments.customer_id
+            WHERE customers.id = ?
+            """,
+            (authenticated_customer_id,)
+        )
 
-    rows = cursor.fetchall()
-    connection.close()
+        rows = cursor.fetchall()
+
+    finally:
+        connection.close()
 
     appointments = []
 
     for row in rows:
-       appointments.append({
-    "appointment_id": row[0],
-    "customer_id": row[1],
-    "customer_name": row[2],
-    "vehicle": row[3],
-    "date": row[4],
-    "time": row[5],
-    "service_type": row[6],
-    "status": row[7]
-})
+        appointments.append({
+            "appointment_id": row[0],
+            "customer_id": row[1],
+            "customer_name": row[2],
+            "vehicle": row[3],
+            "date": row[4],
+            "time": row[5],
+            "service_type": row[6],
+            "status": row[7]
+        })
 
     return appointments
 
@@ -119,8 +131,20 @@ def book_appointment(
     customer_id: int,
     appointment_date: str,
     appointment_time: str,
-    service_type: str
+    service_type: str,
+    authenticated_customer_id: int | None = None
 ):
+    if authenticated_customer_id is None:
+        return {
+            "success": False,
+            "error": "Authentication required"
+        }
+
+    if customer_id != authenticated_customer_id:
+        return {
+            "success": False,
+            "error": "You cannot book appointments for another customer"
+        }
     if not is_valid_date(appointment_date):
         return {
             "success": False,
