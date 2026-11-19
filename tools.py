@@ -6,8 +6,7 @@ from zoneinfo import ZoneInfo
 
 def is_valid_date(date_string: str):
     try:
-        datetime.strptime(date_string, "%Y-%m-%d")
-        return True
+        return datetime.strptime(date_string, "%Y-%m-%d").date().isoformat() == date_string
     except ValueError:
         return False
 

@@ -11,10 +11,10 @@ type User = {
 }
 
 type ProtectedRouteProps = {
-  allowedRole: Role
+  allowedRoles: Role[]
 }
 
-function ProtectedRoute({ allowedRole }: ProtectedRouteProps) {
+function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -73,7 +73,7 @@ function ProtectedRoute({ allowedRole }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />
   }
 
-  if (user.role !== allowedRole) {
+  if (!allowedRoles.includes(user.role)) {
     return <Navigate to={`/${user.role}`} replace />
   }
 

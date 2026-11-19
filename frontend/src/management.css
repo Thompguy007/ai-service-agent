@@ -1,0 +1,181 @@
+.management-page {
+  width: min(100%, 1240px);
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 40px) 64px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.management-heading,
+.management-filters,
+.management-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.management-heading {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.management-heading h1 {
+  margin: 0 0 8px;
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.1;
+}
+
+.management-page p {
+  margin: 0 0 12px;
+}
+
+.management-heading p {
+  margin: 0;
+}
+
+.management-panel {
+  min-width: 0;
+  margin: 0 0 18px;
+  padding: clamp(16px, 3vw, 26px);
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #151e2e;
+  color: #cbd5e1;
+  color-scheme: dark;
+}
+
+.management-panel h2 {
+  margin: 0 0 16px;
+  color: #f8fafc;
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.management-filters {
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.management-filters label:first-child {
+  flex: 1 1 240px;
+  max-width: 400px;
+}
+
+.management-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 12px 16px;
+  margin: 0 0 16px;
+}
+
+fieldset.management-fields {
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+.management-panel label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.management-page button,
+.management-panel input,
+.management-panel select {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  box-sizing: border-box;
+  background: #0d1424;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 14px;
+}
+
+.management-panel input,
+.management-panel select {
+  width: 100%;
+}
+
+.management-page button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.management-page button:hover:not(:disabled) {
+  border-color: #93c5fd;
+}
+
+.management-page button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.management-page .management-primary {
+  border-color: #3b82f6;
+  background: #1d4ed8;
+}
+
+.management-page .management-danger {
+  border-color: #ef4444;
+  background: #991b1b;
+}
+
+.management-page :is(input, select, button):focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.management-table {
+  overflow-x: auto;
+}
+
+.management-table table {
+  width: 100%;
+  min-width: 550px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.management-table :is(th, td) {
+  border-bottom: 1px solid #334155;
+  padding: 12px 10px;
+  vertical-align: middle;
+}
+
+.management-table th {
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.management-table small {
+  display: block;
+  color: #aab9cb;
+  overflow-wrap: anywhere;
+}
+
+.management-table .management-actions {
+  gap: 6px;
+}
+
+.management-notice,
+.management-error {
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.management-notice {
+  background: #064e3b;
+  color: #d1fae5;
+}
+
+.management-error {
+  background: #7f1d1d;
+  color: #fee2e2;
+}

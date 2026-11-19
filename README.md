@@ -7,7 +7,8 @@ A full-stack prototype for booking vehicle service through a conversational AI a
 - Sign in as a customer and view your appointments.
 - Ask the assistant to check availability, book a service, reschedule, or cancel an appointment. The dashboard re-fetches appointments after a chat response so changes such as a cancellation appear on the same page.
 - Start a conversation or reopen an earlier one. The API stores conversation history in SQLite and checks that it belongs to the signed-in customer.
-- The app has protected routes for customer, staff, and admin roles. The customer dashboard is functional. Staff and admin dashboard screens are placeholders, and the API already enforces admin access for customer management.
+- Staff can search the service calendar, book on behalf of a customer, reschedule appointments, and cancel bookings.
+- Administrators can also use the service calendar. The admin dashboard supports searching, creating, and editing customers, with an optional login for new customers. Deletion is limited to customer records without appointments or conversation history.
 
 ## How it works
 
@@ -30,7 +31,7 @@ Copy-Item .env.example .env
 
 Open `.env`, set `ANTHROPIC_API_KEY` to your Anthropic key, and set `JWT_SECRET_KEY` to the generated value. The example uses a separate SQLite file named `portfolio_demo.db`.
 
-From the repository root, create a local demo login. Enter a temporary password at the prompt and use it when signing in.
+From the repository root, create demo accounts in the local demo database. Enter a temporary password for each login.
 
 ```powershell
 @'
@@ -40,18 +41,26 @@ from auth import hash_password
 from database import create_database, get_connection
 
 create_database()
-password = getpass("Demo password: ")
 connection = get_connection()
 try:
+    accounts = [
+        ("Demo Customer", "Demo Car", "demo@example.com", "customer"),
+        ("Demo Staff", "", "staff@example.com", "staff"),
+        ("Demo Admin", "", "admin@example.com", "admin"),
+    ]
+    rows = []
+    for name, vehicle, email, role in accounts:
+        password = getpass(f"Password for {email}: ")
+        rows.append((name, "00000000", vehicle, email, hash_password(password), role))
+
     with connection:
-        connection.execute(
+        connection.executemany(
             """
-            INSERT INTO customers (name, phone, vehicle, email, password_hash)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO customers (name, phone, vehicle, email, password_hash, role)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(email) DO NOTHING
             """,
-            ("Demo Customer", "00000000", "Demo Car", "demo@example.com",
-             hash_password(password)),
+            rows,
         )
 finally:
     connection.close()
@@ -60,7 +69,7 @@ finally:
 .\.venv\Scripts\python.exe -m uvicorn main:app --reload
 ```
 
-If the demo account already exists, use its original password. In a second terminal, start the frontend from the repository root.
+If a demo account already exists, use its original password. In a second terminal, start the frontend from the repository root.
 
 ```powershell
 cd frontend
@@ -68,11 +77,17 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
-Open [the customer app](http://localhost:5173) and sign in as `demo@example.com`. Ask the assistant what times are available on a future weekday, then book or cancel a service to see the dashboard update. The [FastAPI docs](http://127.0.0.1:8000/docs) list the API endpoints.
+Open [the app](http://localhost:5173) and try the three roles.
+
+- `demo@example.com` can ask the assistant to book or cancel a service and see the dashboard update.
+- `staff@example.com` can book for the demo customer, then move or cancel the booking from the service calendar.
+- `admin@example.com` can create and edit customer profiles, and can open the service calendar from the navigation.
+
+The [FastAPI docs](http://127.0.0.1:8000/docs) list the API endpoints.
 
 ## Tests and build
 
-Run the default backend tests from the repository root. They cover authentication and authorization, appointment constraints, conversation history, rate limiting, and mocked agent behavior. GitHub Actions runs the same suite with test-only configuration.
+Run the default backend tests from the repository root. They cover role permissions, staff booking operations, customer administration, appointment constraints, conversation history, rate limiting, and mocked agent behavior. GitHub Actions runs the same suite with test-only configuration.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest

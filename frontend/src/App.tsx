@@ -72,8 +72,8 @@ function App() {
           <Link to="/customer">My Dashboard</Link>
         )}
 
-        {role === 'staff' && (
-          <Link to="/staff">Staff Dashboard</Link>
+        {(role === 'staff' || role === 'admin') && (
+          <Link to="/staff">Service Calendar</Link>
         )}
 
         {role === 'admin' && (
@@ -100,15 +100,14 @@ function App() {
         <Route path="/login" element={<Login />} />
 
         {/* Customer only */}
-        <Route element={<ProtectedRoute allowedRole="customer" />}>
+        <Route element={<ProtectedRoute allowedRoles={['customer']} />}>
           <Route
             path="/customer"
             element={<CustomerDashboard />}
           />
         </Route>
 
-        {/* Staff only */}
-        <Route element={<ProtectedRoute allowedRole="staff" />}>
+        <Route element={<ProtectedRoute allowedRoles={['staff', 'admin']} />}>
           <Route
             path="/staff"
             element={<StaffDashboard />}
@@ -116,7 +115,7 @@ function App() {
         </Route>
 
         {/* Admin only */}
-        <Route element={<ProtectedRoute allowedRole="admin" />}>
+        <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
           <Route
             path="/admin"
             element={<AdminDashboard />}

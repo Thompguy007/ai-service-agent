@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import closing
 from threading import Lock
 import sqlite3
 from fastapi import HTTPException
@@ -8,8 +9,10 @@ from agent import run_agent
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from fastapi import FastAPI
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator, model_validator
 from tools import book_appointment
 from rate_limiter import RateLimiter
 from database import (
@@ -59,7 +62,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from auth import verify_access_token
-from auth import authenticate_customer, create_access_token
+from auth import authenticate_customer, create_access_token, hash_password
 
 security = HTTPBearer()
 
@@ -142,6 +145,18 @@ def require_admin(
     return customer_id
 
 
+def require_booking_manager(
+    customer_id: int = Depends(get_current_customer)
+) -> int:
+    with closing(get_connection()) as connection:
+        row = connection.execute(
+            "SELECT role FROM customers WHERE id = ?", (customer_id,)
+        ).fetchone()
+    if row is None or row[0] not in ("staff", "admin"):
+        raise HTTPException(403, "Staff or administrator privileges required")
+    return customer_id
+
+
 load_dotenv()
 
 client = Anthropic(
@@ -149,6 +164,20 @@ client = Anthropic(
 )
 
 app = FastAPI()
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_validation_error(request: Request, error: RequestValidationError):
+    if request.method == "POST" and request.url.path.rstrip("/") == "/customers":
+        # Validation can attach the submitted password or the entire request body.
+        errors = [
+            {key: value for key, value in item.items() if key in ("loc", "msg", "type")}
+            for item in error.errors()
+        ]
+        error = RequestValidationError(errors)
+    return await request_validation_exception_handler(request, error)
+
+
 # Limit each customer to 10 AI requests per minute
 chat_rate_limiter = RateLimiter(
     max_requests=10,
@@ -172,17 +201,42 @@ app.add_middleware(
 create_database()
 
 class Customer(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    name: str
-    phone: str
-    vehicle: str
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=1, max_length=40)
+    vehicle: str = Field(min_length=1, max_length=120)
+
+
+class NewCustomer(Customer):
+    email: EmailStr | None = None
+    password: SecretStr | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_login(self):
+        if (self.email is None) != (self.password is None):
+            raise ValueError("Provide both email and password to enable login")
+        return self
 
 class Appointment(BaseModel):
     customer_id: int
     appointment_date: str
     appointment_time: str
     service_type: str
+
+
+class StaffAppointment(Appointment):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    customer_id: int = Field(gt=0)
+    service_type: str = Field(min_length=1, max_length=120)
+
+
+class RescheduleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_date: str
+    new_time: str
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
@@ -241,9 +295,15 @@ def home():
 
 @app.post("/customers")
 def create_customer(
-    customer: Customer,
+    customer: NewCustomer,
     authenticated_customer_id: int = Depends(require_admin)
 ):
+    if not isinstance(customer, NewCustomer):
+        customer = NewCustomer.model_validate(customer, from_attributes=True)
+    password_hash = (
+        hash_password(customer.password.get_secret_value())
+        if customer.password is not None else None
+    )
     connection = get_connection()
 
     try:
@@ -251,10 +311,10 @@ def create_customer(
 
         cursor.execute(
             """
-            INSERT INTO customers (name, phone, vehicle)
-            VALUES (?, ?, ?)
+            INSERT INTO customers (name, phone, vehicle, email, password_hash)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (customer.name, customer.phone, customer.vehicle)
+            (customer.name, customer.phone, customer.vehicle, customer.email, password_hash)
         )
 
         customer_id = cursor.lastrowid
@@ -264,9 +324,14 @@ def create_customer(
         return {
             "message": "Customer created",
             "customer_id": customer_id,
-            "customer": customer
+            "customer": customer.model_dump(exclude={"password"}, exclude_none=True)
         }
 
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+        if error.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+            raise HTTPException(409, "A customer already uses this email") from error
+        raise
     except sqlite3.Error:
         connection.rollback()
         raise
@@ -287,6 +352,49 @@ def remove_customer(
         )
 
     return delete_customer(customer_id)
+
+
+@app.patch("/customers/{customer_id}")
+def update_customer(
+    customer_id: int,
+    customer: Customer,
+    authenticated_customer_id: int = Depends(require_admin)
+):
+    with closing(get_connection()) as connection, connection:
+        result = connection.execute(
+            """
+            UPDATE customers SET name = ?, phone = ?, vehicle = ?
+            WHERE id = ? AND role = 'customer'
+            """,
+            (customer.name, customer.phone, customer.vehicle, customer_id),
+        )
+        if result.rowcount == 0:
+            raise HTTPException(404, "Customer not found")
+    return {"customer_id": customer_id, "customer": customer}
+
+
+@app.delete("/admin/customers/{customer_id}", status_code=204)
+def admin_remove_customer(
+    customer_id: int,
+    authenticated_customer_id: int = Depends(require_admin)
+):
+    with closing(get_connection()) as connection, connection:
+        result = connection.execute(
+            """
+            DELETE FROM customers
+            WHERE id = ? AND role = 'customer'
+                AND NOT EXISTS (SELECT 1 FROM appointments WHERE customer_id = customers.id)
+                AND NOT EXISTS (SELECT 1 FROM conversations WHERE customer_id = customers.id)
+            """,
+            (customer_id,),
+        )
+        if result.rowcount == 0:
+            exists = connection.execute(
+                "SELECT 1 FROM customers WHERE id = ? AND role = 'customer'", (customer_id,)
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(404, "Customer not found")
+            raise HTTPException(409, "Customers with appointments or chat history cannot be deleted")
 
 
 @app.get("/customers")
@@ -319,7 +427,7 @@ def get_customers(
         if role == "admin":
             cursor.execute(
                 """
-                SELECT id, name, phone, vehicle
+                SELECT id, name, phone, vehicle, email, role
                 FROM customers
                 ORDER BY id
                 """
@@ -344,12 +452,15 @@ def get_customers(
     customers = []
 
     for row in rows:
-        customers.append({
+        customer = {
             "id": row[0],
             "name": row[1],
             "phone": row[2],
             "vehicle": row[3]
-        })
+        }
+        if role == "admin":
+            customer.update(email=row[4], role=row[5])
+        customers.append(customer)
 
     return {"customers": customers}
 
@@ -454,8 +565,8 @@ def get_appointments(
                 ON appointments.customer_id = customers.id
         """
 
-        # Administrators can view all appointments
-        if role == "admin":
+        # Staff and administrators can view the full booking calendar.
+        if role in ("staff", "admin"):
             cursor.execute(
                 query + """
                 ORDER BY
@@ -495,6 +606,88 @@ def get_appointments(
         })
 
     return {"appointments": appointments}
+
+
+@app.get("/staff/customers")
+def list_booking_customers(authenticated_customer_id: int = Depends(require_booking_manager)):
+    with closing(get_connection()) as connection:
+        rows = connection.execute(
+            "SELECT id, name FROM customers WHERE role = 'customer' ORDER BY name, id"
+        ).fetchall()
+    return {"customers": [{"id": customer_id, "name": name} for customer_id, name in rows]}
+
+
+def get_appointment_owner(appointment_id: int) -> int:
+    with closing(get_connection()) as connection:
+        row = connection.execute(
+            "SELECT customer_id FROM appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Appointment not found")
+    return row[0]
+
+
+def booking_manager_result(result: dict) -> dict:
+    if result["success"]:
+        return result
+    error = result["error"]
+    if error in {
+        "This time slot is already booked",
+        "The requested time slot is already booked",
+        "Appointment not found or is not currently booked",
+        "Appointment is already cancelled",
+        "Appointment could not be cancelled",
+    }:
+        raise HTTPException(409, error)
+    if error in {
+        "Appointment not found",
+        "Target customer does not exist",
+        "Authenticated customer does not exist",
+        "Invalid customer reference",
+    }:
+        raise HTTPException(404, error)
+    if error == "Database integrity error":
+        raise HTTPException(500, "Could not save the appointment")
+    raise HTTPException(400, error)
+
+
+@app.post("/staff/appointments", status_code=201)
+def create_staff_appointment(
+    appointment: StaffAppointment,
+    authenticated_customer_id: int = Depends(require_booking_manager),
+):
+    with closing(get_connection()) as connection:
+        customer = connection.execute(
+            "SELECT 1 FROM customers WHERE id = ? AND role = 'customer'", (appointment.customer_id,)
+        ).fetchone()
+    if customer is None:
+        raise HTTPException(404, "Customer not found")
+    # The role dependency authorizes staff to invoke the existing customer-scoped operation.
+    return booking_manager_result(book_appointment(
+        **appointment.model_dump(), authenticated_customer_id=appointment.customer_id
+    ))
+
+
+@app.patch("/staff/appointments/{appointment_id}")
+def reschedule_staff_appointment(
+    appointment_id: int,
+    changes: RescheduleRequest,
+    authenticated_customer_id: int = Depends(require_booking_manager),
+):
+    owner = get_appointment_owner(appointment_id)
+    return booking_manager_result(reschedule_appointment(
+        appointment_id, changes.new_date, changes.new_time, authenticated_customer_id=owner
+    ))
+
+
+@app.post("/staff/appointments/{appointment_id}/cancel")
+def cancel_staff_appointment(
+    appointment_id: int,
+    authenticated_customer_id: int = Depends(require_booking_manager),
+):
+    owner = get_appointment_owner(appointment_id)
+    return booking_manager_result(cancel_appointment(appointment_id, authenticated_customer_id=owner))
+
 
 @app.get("/test-claude")
 def test_claude(
