@@ -2,6 +2,16 @@
 
 A full-stack prototype for booking vehicle service through a conversational AI assistant. Customers sign in, manage appointments in chat, and see updates in their dashboard without reloading the page.
 
+## Demo
+
+[Watch the 30-second portfolio demo (MP4)](docs/demo/serviceai-portfolio-demo.mp4)
+
+See a customer cancel an appointment through chat without reloading the dashboard, a staff member reschedule a booking, and an administrator update a customer profile. The recording uses fictional data and a simulated AI response. The app performs the booking changes in a separate demo database.
+
+[Customer dashboard](docs/demo/serviceai-customer.png) · [Staff dashboard](docs/demo/serviceai-staff.png) · [Admin dashboard](docs/demo/serviceai-admin.png)
+
+![ServiceAI staff dashboard showing the service calendar](docs/demo/serviceai-staff.png)
+
 ## What you can try
 
 - Sign in as a customer and view your appointments.
