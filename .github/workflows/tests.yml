@@ -19,4 +19,8 @@ jobs:
         run: pip install -r requirements.txt
               
       - name: Run tests
+        env:
+          ANTHROPIC_API_KEY: placeholder-for-mocked-tests
+          JWT_SECRET_KEY: placeholder-for-deterministic-jwt-tests
+          DB_NAME: ${{ runner.temp }}/service-agent-test.db
         run: pytest -v

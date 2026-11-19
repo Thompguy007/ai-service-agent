@@ -1,0 +1,408 @@
+.counter {
+  font-size: 16px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+  margin-bottom: 24px;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.hero {
+  position: relative;
+
+  .base,
+  .framework,
+  .vite {
+    inset-inline: 0;
+    margin: 0 auto;
+  }
+
+  .base {
+    width: 170px;
+    position: relative;
+    z-index: 0;
+  }
+
+  .framework,
+  .vite {
+    position: absolute;
+  }
+
+  .framework {
+    z-index: 1;
+    top: 34px;
+    height: 28px;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
+      scale(1.4);
+  }
+
+  .vite {
+    z-index: 0;
+    top: 107px;
+    height: 26px;
+    width: auto;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
+      scale(0.8);
+  }
+}
+
+#center {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+
+  @media (max-width: 1024px) {
+    padding: 32px 20px 24px;
+    gap: 18px;
+  }
+}
+
+#next-steps {
+  display: flex;
+  border-top: 1px solid var(--border);
+  text-align: left;
+
+  & > div {
+    flex: 1 1 0;
+    padding: 32px;
+    @media (max-width: 1024px) {
+      padding: 24px 20px;
+    }
+  }
+
+  .icon {
+    margin-bottom: 16px;
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+#docs {
+  border-right: 1px solid var(--border);
+
+  @media (max-width: 1024px) {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+#next-steps ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  margin: 32px 0 0;
+
+  .logo {
+    height: 18px;
+  }
+
+  a {
+    color: var(--text-h);
+    font-size: 16px;
+    border-radius: 6px;
+    background: var(--social-bg);
+    display: flex;
+    padding: 6px 12px;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: box-shadow 0.3s;
+
+    &:hover {
+      box-shadow: var(--shadow);
+    }
+    .button-icon {
+      height: 18px;
+      width: 18px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+
+    li {
+      flex: 1 1 calc(50% - 8px);
+    }
+
+    a {
+      width: 100%;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+  }
+}
+
+#spacer {
+  height: 88px;
+  border-top: 1px solid var(--border);
+  @media (max-width: 1024px) {
+    height: 48px;
+  }
+}
+
+.ticks {
+  position: relative;
+  width: 100%;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: -4.5px;
+    border: 5px solid transparent;
+  }
+
+  &::before {
+    left: 0;
+    border-left-color: var(--border);
+  }
+  &::after {
+    right: 0;
+    border-right-color: var(--border);
+  }
+}
+
+.app-navbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 32px;
+  background: #0d1424;
+  border-bottom: 1px solid #263449;
+  flex-wrap: wrap;
+}
+
+.app-navbar a {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.app-navbar a:hover {
+  color: #ffffff;
+}
+
+.app-navbar button {
+  margin-left: auto;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-navbar button:hover {
+  background: #1d4ed8;
+}
+
+@media (max-width: 600px) {
+  .app-navbar {
+    padding: 16px;
+    gap: 14px;
+  }
+}
+
+.app-navbar .app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 32px;
+  color: #ffffff;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+}
+
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: #2563eb;
+  color: white;
+  border-radius: 10px;
+  font-size: 22px;
+}
+
+.customer-dashboard {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+  box-sizing: border-box;
+}
+
+.customer-dashboard h1 {
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: -1px;
+  margin: 0 0 24px;
+}
+
+.customer-dashboard h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 600px) {
+  .customer-dashboard {
+    padding: 24px 16px 48px;
+  }
+}
+
+
+.appointment-card {
+  background: #1c2535;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 24px;
+  margin-bottom: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.appointment-card:hover {
+  border-color: #3b82f6;
+}
+
+.appointment-card h3 {
+  color: #f8fafc;
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 16px;
+  text-transform: capitalize;
+}
+
+.appointment-card p {
+  color: #cbd5e1;
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.appointment-status {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-booked {
+  background: #064e3b;
+  color: #a7f3d0;
+}
+
+.status-cancelled {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.status-other {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.dashboard-ai-section {
+  margin-top: 48px;
+  padding: 32px;
+  background: #151e2e;
+  border: 1px solid #334155;
+  border-radius: 20px;
+}
+
+.dashboard-ai-header {
+  margin-bottom: 24px;
+}
+
+.dashboard-ai-label {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+.dashboard-ai-header h2 {
+  color: #f8fafc;
+  font-size: 26px;
+  margin-bottom: 10px;
+}
+
+.dashboard-ai-header p {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (max-width: 600px) {
+  .dashboard-ai-section {
+    padding: 18px;
+  }
+}
+
+.chatbot-layout {
+  width: 100%;
+  min-width: 0;
+  margin-top: 24px;
+}
+
+/* ServiceAI chatbot layout */
+
+.chatbot-columns {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.chatbot-sidebar {
+  min-width: 0;
+  max-height: 560px;
+  overflow-y: auto;
+  padding: 16px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+}
+
+.chatbot-main {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .chatbot-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .chatbot-sidebar {
+    max-height: 220px;
+  }
+}

@@ -41,14 +41,14 @@ def seed_database():
     appointments = [
         (
             customer_ids["Mike"],
-            "2026-10-02",
+            "2026-12-02",
             "11:00",
             "Tire Change",
             "booked"
         ),
         (
             customer_ids["Tom"],
-            "2026-10-05",
+            "2026-12-07",
             "14:00",
             "Oil Change",
             "booked"

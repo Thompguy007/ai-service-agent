@@ -4,3 +4,6 @@ anthropic
 python-dotenv
 pytest
 httpx
+tzdata
+PyJWT
+pwdlib[argon2]

@@ -1,6 +1,8 @@
 from database import get_connection
 import sqlite3
 from datetime import datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 def is_valid_date(date_string: str):
     try:
@@ -45,20 +47,24 @@ def get_available_slots(appointment_date: str):
     ]
 
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT appointment_time
-        FROM appointments
-        WHERE appointment_date = ?
-        AND status = 'booked'
-        """,
-        (appointment_date,)
-    )
+    try:
+        cursor = connection.cursor()
 
-    rows = cursor.fetchall()
-    connection.close()
+        cursor.execute(
+            """
+            SELECT appointment_time
+            FROM appointments
+            WHERE appointment_date = ?
+            AND status = 'booked'
+            """,
+            (appointment_date,)
+        )
+
+        rows = cursor.fetchall()
+
+    finally:
+        connection.close()
 
     booked_times = [row[0] for row in rows]
 
@@ -74,7 +80,7 @@ def get_available_slots(appointment_date: str):
     }
 
 def get_customer_appointments(
-    customer_name: str,
+    customer_name: str | None = None,
     authenticated_customer_id: int | None = None
 ):
     if authenticated_customer_id is None:
@@ -102,6 +108,9 @@ def get_customer_appointments(
             JOIN appointments
                 ON customers.id = appointments.customer_id
             WHERE customers.id = ?
+            ORDER BY
+            appointments.appointment_date ASC,
+            appointments.appointment_time ASC
             """,
             (authenticated_customer_id,)
         )
@@ -134,64 +143,108 @@ def book_appointment(
     service_type: str,
     authenticated_customer_id: int | None = None
 ):
+    # Authentication required
     if authenticated_customer_id is None:
         return {
             "success": False,
             "error": "Authentication required"
         }
 
-    if customer_id != authenticated_customer_id:
-        return {
-            "success": False,
-            "error": "You cannot book appointments for another customer"
-        }
+    # Verify authenticated customer and booking target
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        # Check authenticated customer
+        cursor.execute(
+            "SELECT role FROM customers WHERE id = ?",
+            (authenticated_customer_id,)
+        )
+
+        authenticated_customer = cursor.fetchone()
+
+        if authenticated_customer is None:
+            return {
+                "success": False,
+                "error": "Authenticated customer does not exist"
+            }
+
+        # Check target customer
+        cursor.execute(
+            "SELECT id FROM customers WHERE id = ?",
+            (customer_id,)
+        )
+
+        target_customer = cursor.fetchone()
+
+        if target_customer is None:
+            return {
+                "success": False,
+                "error": "Target customer does not exist"
+            }
+
+        # Check permissions
+        if (
+            customer_id != authenticated_customer_id
+            and authenticated_customer[0] != "admin"
+        ):
+            return {
+                "success": False,
+                "error": "You cannot book appointments for another customer"
+            }
+
+    finally:
+        connection.close()
+
+    # Validate appointment date
+
+    # Validate appointment date
     if not is_valid_date(appointment_date):
         return {
             "success": False,
             "error": "Invalid appointment date. Use YYYY-MM-DD."
         }
 
+    # Validate appointment time
     if not is_valid_time(appointment_time):
         return {
             "success": False,
             "error": "Invalid appointment time. Use HH:MM."
         }
 
+    # Validate business hours
     if not is_allowed_booking_time(appointment_time):
-        return{
+        return {
             "success": False,
             "error": "Appointment time must be between 08:00 and 16:00 on the hour."
         }
 
-
-    
     connection = get_connection()
-    cursor = connection.cursor()
-
-        # Check if the time slot is already booked
-    cursor.execute(
-        """
-        SELECT id
-        FROM appointments
-        WHERE appointment_date = ?
-        AND appointment_time = ?
-        AND status = 'booked'
-        """,
-        (appointment_date, appointment_time)
-    )
-
-    existing_appointment = cursor.fetchone()
-
-    if existing_appointment:
-        connection.close()
-
-        return {
-            "success": False,
-            "error": "This time slot is already booked"
-        }
-
 
     try:
+        cursor = connection.cursor()
+
+        # Check if the time slot is already booked
+        cursor.execute(
+            """
+            SELECT id
+            FROM appointments
+            WHERE appointment_date = ?
+            AND appointment_time = ?
+            AND status = 'booked'
+            """,
+            (appointment_date, appointment_time)
+        )
+
+        existing_appointment = cursor.fetchone()
+
+        if existing_appointment:
+            return {
+                "success": False,
+                "error": "This time slot is already booked"
+            }
+
         cursor.execute(
             """
             INSERT INTO appointments (
@@ -210,28 +263,47 @@ def book_appointment(
             )
         )
 
-        connection.commit()
         appointment_id = cursor.lastrowid
+        connection.commit()
 
-    except sqlite3.IntegrityError:
-        connection.close()
+        return {
+            "success": True,
+            "appointment_id": appointment_id,
+            "customer_id": customer_id,
+            "date": appointment_date,
+            "time": appointment_time,
+            "service_type": service_type,
+            "status": "booked"
+        }
+
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+
+        error_message = str(error)
+
+        if "UNIQUE constraint failed" in error_message:
+            return {
+                "success": False,
+                "error": "This time slot is already booked"
+            }
+
+        if "FOREIGN KEY constraint failed" in error_message:
+            return {
+                "success": False,
+                "error": "Invalid customer reference"
+            }
 
         return {
             "success": False,
-            "error": "This time slot is already booked"
+            "error": "Database integrity error"
         }
 
-    connection.close()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
 
-    return {
-        "success": True,
-        "appointment_id": appointment_id,
-        "customer_id": customer_id,
-        "date": appointment_date,
-        "time": appointment_time,
-        "service_type": service_type,
-        "status": "booked"
-    }
+    finally:
+        connection.close()
 
 def reschedule_appointment(
     appointment_id: int,
@@ -239,57 +311,61 @@ def reschedule_appointment(
     new_time: str,
     authenticated_customer_id: int | None = None
 ):
-    # Reject rescheduling without verified identity
+    # Authentication required
     if authenticated_customer_id is None:
         return {
             "success": False,
             "error": "Authentication required"
         }
+
+    # Validate date
     if not is_valid_date(new_date):
         return {
             "success": False,
             "error": "Invalid appointment date. Use YYYY-MM-DD."
         }
 
+    # Validate time
     if not is_valid_time(new_time):
         return {
             "success": False,
             "error": "Invalid appointment time. Use HH:MM."
         }
 
+    # Validate business hours
     if not is_allowed_booking_time(new_time):
         return {
             "success": False,
             "error": "Appointment time must be between 08:00 and 16:00 on the hour."
         }
 
-    
     connection = get_connection()
-    cursor = connection.cursor()
-
-    # Check om det nye tidspunkt allerede er optaget
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM appointments
-        WHERE appointment_date = ?
-        AND appointment_time = ?
-        AND status = 'booked'
-        AND id != ?
-        """,
-        (new_date, new_time, appointment_id)
-    )
-
-    existing_appointment = cursor.fetchone()
-    if existing_appointment:
-        connection.close()
-        return {
-            "success": False,
-            "error": "The requested time slot is already booked"
-        }
 
     try:
+        cursor = connection.cursor()
+
+        # Check whether the requested slot is occupied
+        cursor.execute(
+            """
+            SELECT id
+            FROM appointments
+            WHERE appointment_date = ?
+            AND appointment_time = ?
+            AND status = 'booked'
+            AND id != ?
+            """,
+            (new_date, new_time, appointment_id)
+        )
+
+        existing_appointment = cursor.fetchone()
+
+        if existing_appointment:
+            return {
+                "success": False,
+                "error": "The requested time slot is already booked"
+            }
+
+        # Update appointment
         cursor.execute(
             """
             UPDATE appointments
@@ -307,36 +383,49 @@ def reschedule_appointment(
             )
         )
 
-    except sqlite3.IntegrityError:
-        connection.close()
+        updated_rows = cursor.rowcount
+
+        if updated_rows == 0:
+            return {
+                "success": False,
+                "error": "Appointment not found or is not currently booked"
+            }
+
+        connection.commit()
+
+        return {
+            "success": True,
+            "appointment_id": appointment_id,
+            "new_date": new_date,
+            "new_time": new_time
+        }
+
+    except sqlite3.IntegrityError as error:
+        connection.rollback()
+
+        if "UNIQUE constraint failed" in str(error):
+            return {
+                "success": False,
+                "error": "The requested time slot is already booked"
+            }
 
         return {
             "success": False,
-            "error": "The requested time slot is already booked"
+            "error": "Database integrity error"
         }
 
-    connection.commit()
-    if cursor.rowcount == 0:
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+    finally:
         connection.close()
 
-        return {
-            "success": False,
-            "error": "Appointment not found or is not currently booked"
-        }
-
-    connection.close()
-
-    return {
-        "success": True,
-        "appointment_id": appointment_id,
-        "new_date": new_date,
-        "new_time": new_time
-    }
 def cancel_appointment(
     appointment_id: int,
     authenticated_customer_id: int | None = None
 ):
-    # Reject cancellation when no verified identity is provided
+    # Authentication required
     if authenticated_customer_id is None:
         return {
             "success": False,
@@ -344,60 +433,118 @@ def cancel_appointment(
         }
 
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT id, status
-        FROM appointments
-        WHERE id = ?
-        AND customer_id = ?
-    """,
-        (appointment_id, authenticated_customer_id)
-)
+    try:
+        cursor = connection.cursor()
 
-    appointment = cursor.fetchone()
+        # Find appointment belonging to authenticated customer
+        cursor.execute(
+            """
+            SELECT id, status
+            FROM appointments
+            WHERE id = ?
+            AND customer_id = ?
+            """,
+            (appointment_id, authenticated_customer_id)
+        )
 
-    if appointment is None:
+        appointment = cursor.fetchone()
+
+        if appointment is None:
+            return {
+                "success": False,
+                "error": "Appointment not found"
+            }
+
+        if appointment[1] == "cancelled":
+            return {
+                "success": False,
+                "error": "Appointment is already cancelled"
+            }
+
+        # Cancel appointment
+        cursor.execute(
+            """
+            UPDATE appointments
+            SET status = 'cancelled'
+            WHERE id = ?
+            AND customer_id = ?
+            AND status = 'booked'
+            """,
+            (appointment_id, authenticated_customer_id)
+        )
+
+        updated_rows = cursor.rowcount
+
+        if updated_rows != 1:
+            connection.rollback()
+
+            return {
+                "success": False,
+                "error": "Appointment could not be cancelled"
+            }
+
+        connection.commit()
+
+        return {
+            "success": True,
+            "appointment_id": appointment_id,
+            "status": "cancelled"
+        }
+
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+    finally:
         connection.close()
+
+def get_next_customer_appointment(
+    authenticated_customer_id: int | None = None
+):
+    if authenticated_customer_id is None:
         return {
             "success": False,
-            "error": "Appointment not found"
+            "error": "Authentication required"
         }
 
-    if appointment[1] == "cancelled":
-        connection.close()
+    appointments = get_customer_appointments(
+        authenticated_customer_id=authenticated_customer_id
+    )
+
+    if isinstance(appointments, dict):
+        return appointments
+
+    now = datetime.now(ZoneInfo("Europe/Copenhagen"))
+
+    upcoming = []
+
+    for appointment in appointments:
+        if appointment["status"] != "booked":
+            continue
+
+        appointment_datetime = datetime.strptime(
+            f'{appointment["date"]} {appointment["time"]}',
+            "%Y-%m-%d %H:%M"
+        ).replace(tzinfo=ZoneInfo("Europe/Copenhagen"))
+
+        if appointment_datetime > now:
+            upcoming.append(appointment)
+
+    if not upcoming:
         return {
-            "success": False,
-            "error": "Appointment is already cancelled"
+            "success": True,
+            "appointment": None
         }
 
-    cursor.execute(
-    """
-    UPDATE appointments
-    SET status = 'cancelled'
-    WHERE id = ?
-    AND customer_id = ?
-    AND status = 'booked'
-    """,
-    (appointment_id, authenticated_customer_id)
-)
-
-        # Check how many appointments were actually updated
-    updated_rows = cursor.rowcount
-
-    connection.commit()
-    connection.close()
-
-    # Only report success if exactly one appointment was cancelled
-    if updated_rows != 1:
-        return {
-            "success": False,
-            "error": "Appointment could not be cancelled"
-        }
+    upcoming.sort(
+        key=lambda appointment: (
+            appointment["date"],
+            appointment["time"]
+        )
+    )
 
     return {
         "success": True,
-        "appointment_id": appointment_id,
-        "status": "cancelled"
+        "appointment": upcoming[0]
     }

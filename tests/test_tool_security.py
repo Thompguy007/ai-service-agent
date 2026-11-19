@@ -146,3 +146,101 @@ def test_authenticated_customer_can_book_appointment():
     assert appointment[0] == customer_id
     assert appointment[1] == "Tire Change"
     assert appointment[2] == "booked"
+
+def test_booking_rejects_nonexistent_authenticated_customer():
+    """Booking must reject authenticated customer IDs that do not exist."""
+
+    from tools import book_appointment
+
+    result = book_appointment(
+        customer_id=99999,
+        appointment_date="2027-06-16",
+        appointment_time="10:00",
+        service_type="Oil Change",
+        authenticated_customer_id=99999
+    )
+
+    assert result["success"] is False
+
+def test_ai_cannot_override_authenticated_customer_id():
+    """AI tool arguments must not override the authenticated identity."""
+
+    from agent import execute_tool
+    from database import get_connection
+
+    # Customer 2 attempts to impersonate customer 1
+    result = execute_tool(
+        tool_name="book_appointment",
+        tool_input={
+            "customer_id": 1,
+            "authenticated_customer_id": 1,
+            "appointment_date": "2027-07-15",
+            "appointment_time": "10:00",
+            "service_type": "Oil Change"
+        },
+        authenticated_customer_id=2
+    )
+
+    # Booking must be rejected
+    assert result["success"] is False
+
+    # Verify that no appointment was created
+    connection = get_connection()
+
+    try:
+        appointment = connection.execute(
+            """
+            SELECT id
+            FROM appointments
+            WHERE appointment_date = ?
+            AND appointment_time = ?
+            """,
+            ("2027-07-15", "10:00")
+        ).fetchone()
+
+    finally:
+        connection.close()
+
+    assert appointment is None
+
+def test_ai_can_book_without_providing_customer_id():
+    from agent import execute_tool
+    from database import get_connection
+
+    # Claude provides booking details but no customer ID
+    result = execute_tool(
+        tool_name="book_appointment",
+        tool_input={
+            "appointment_date": "2027-08-15",
+            "appointment_time": "10:00",
+            "service_type": "Tire Change"
+        },
+        authenticated_customer_id=1
+    )
+
+    # Booking must succeed
+    assert result["success"] is True
+    assert result["customer_id"] == 1
+
+    # Verify that the appointment belongs to customer 1
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT customer_id
+            FROM appointments
+            WHERE id = ?
+            """,
+            (result["appointment_id"],)
+        )
+
+        appointment = cursor.fetchone()
+
+        assert appointment is not None
+        assert appointment[0] == 1
+
+    finally:
+        connection.close()

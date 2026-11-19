@@ -1,10 +1,27 @@
 import os
+import logging
+from threading import Lock
+import sqlite3
+from fastapi import HTTPException
+from fastapi import Request
 from agent import run_agent
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from fastapi import FastAPI
-from pydantic import BaseModel
-from database import get_connection, create_database
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from tools import book_appointment
+from rate_limiter import RateLimiter
+from database import (
+    get_connection,
+    create_database,
+    create_conversation,
+    save_message,
+    save_message_pair,
+    get_conversation_messages,
+    get_customer_conversations,
+    conversation_belongs_to_customer,
+)
 from tools import (
     get_available_slots,
     get_customer_appointments,
@@ -12,6 +29,32 @@ from tools import (
     reschedule_appointment,
     cancel_appointment
 )
+
+logger = logging.getLogger(__name__)
+
+# Temporary in-memory conversation storage
+conversation_histories: dict[int, list[dict]] = {}
+conversation_lock = Lock()
+
+MAX_HISTORY_MESSAGES = 20
+
+FAILED_AGENT_RESPONSES = {
+    "The assistant is temporarily unavailable. Please try again later.",
+    "I couldn't complete my response. Please try again.",
+    "I couldn't generate a complete response. Please try again.",
+    "I couldn't complete the request safely. Please try again.",
+}
+
+
+def is_successful_agent_response(result: dict) -> bool:
+    response = result.get("response")
+
+    return (
+        isinstance(response, str)
+        and bool(response.strip())
+        and response not in FAILED_AGENT_RESPONSES
+    )
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -64,6 +107,40 @@ def get_current_customer(
     
     return customer_id
 
+def require_admin(
+    customer_id: int = Depends(get_current_customer)
+) -> int:
+    """
+    Verify that the authenticated customer has admin privileges.
+    """
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT role
+            FROM customers
+            WHERE id = ?
+            """,
+            (customer_id,)
+        )
+
+        result = cursor.fetchone()
+
+    finally:
+        connection.close()
+
+    if result is None or result[0] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required"
+        )
+
+    return customer_id
+
 
 load_dotenv()
 
@@ -72,10 +149,31 @@ client = Anthropic(
 )
 
 app = FastAPI()
+# Limit each customer to 10 AI requests per minute
+chat_rate_limiter = RateLimiter(
+    max_requests=10,
+    window_seconds=60
+)
+
+# Limit login attempts per client IP
+login_rate_limiter = RateLimiter(
+    max_requests=5,
+    window_seconds=300
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 create_database()
 
 class Customer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     phone: str
     vehicle: str
@@ -87,7 +185,18 @@ class Appointment(BaseModel):
     service_type: str
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=4000)
+    conversation_id: int | None = None
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError("Message cannot be empty")
+
+        return value
 
 class LoginRequest(BaseModel):
     email: str
@@ -95,65 +204,142 @@ class LoginRequest(BaseModel):
 
 def delete_customer(customer_id: int):
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        "DELETE FROM customers WHERE id = ?",
-        (customer_id,)
-    )
+    try:
+        cursor = connection.cursor()
 
-    connection.commit()
-    connection.close()
+        cursor.execute(
+            "DELETE FROM customers WHERE id = ?",
+            (customer_id,)
+        )
 
-    return {
-        "success": True,
-        "deleted_customer_id": customer_id
-    }
+        deleted_rows = cursor.rowcount
 
+        if deleted_rows == 0:
+            return {
+                "success": False,
+                "error": "Customer not found"
+            }
+
+        connection.commit()
+
+        return {
+            "success": True,
+            "deleted_customer_id": customer_id
+        }
+
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
 @app.get("/")
 def home():
     return {"message": "AI Service Agent is running"}
 
 
 @app.post("/customers")
-def create_customer(customer: Customer):
+def create_customer(
+    customer: Customer,
+    authenticated_customer_id: int = Depends(require_admin)
+):
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO customers (name, phone, vehicle)
-        VALUES (?, ?, ?)
-        """,
-        (customer.name, customer.phone, customer.vehicle)
-    )
+    try:
+        cursor = connection.cursor()
 
-    connection.commit()
-    customer_id = cursor.lastrowid
-    connection.close()
+        cursor.execute(
+            """
+            INSERT INTO customers (name, phone, vehicle)
+            VALUES (?, ?, ?)
+            """,
+            (customer.name, customer.phone, customer.vehicle)
+        )
 
-    return {
-        "message": "Customer created",
-        "customer_id": customer_id,
-        "customer": customer
-    }
+        customer_id = cursor.lastrowid
+
+        connection.commit()
+
+        return {
+            "message": "Customer created",
+            "customer_id": customer_id,
+            "customer": customer
+        }
+
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+
 
 @app.delete("/customers/{customer_id}")
-def remove_customer(customer_id: int):
+def remove_customer(
+    customer_id: int,
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    if customer_id != authenticated_customer_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not authorized to delete this customer."
+        )
+
     return delete_customer(customer_id)
 
+
 @app.get("/customers")
-def get_customers():
+
+def get_customers(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT id, name, phone, vehicle
-        FROM customers
-    """)
+    try:
+        cursor = connection.cursor()
 
-    rows = cursor.fetchall()
-    connection.close()
+        # Get the authenticated customer's role
+        cursor.execute(
+            "SELECT role FROM customers WHERE id = ?",
+            (authenticated_customer_id,)
+        )
+
+        result = cursor.fetchone()
+
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Customer not found"
+            )
+
+        role = result[0]
+
+        # Administrators can see all customers
+        if role == "admin":
+            cursor.execute(
+                """
+                SELECT id, name, phone, vehicle
+                FROM customers
+                ORDER BY id
+                """
+            )
+
+        # Regular customers can only see themselves
+        else:
+            cursor.execute(
+                """
+                SELECT id, name, phone, vehicle
+                FROM customers
+                WHERE id = ?
+                """,
+                (authenticated_customer_id,)
+            )
+
+        rows = cursor.fetchall()
+
+    finally:
+        connection.close()
 
     customers = []
 
@@ -168,59 +354,132 @@ def get_customers():
     return {"customers": customers}
 
 @app.post("/appointments")
-def create_appointment(appointment: Appointment):
+def create_appointment(
+    appointment: Appointment,
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    # Check whether the authenticated user is an administrator
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO appointments (
-            customer_id,
-            appointment_date,
-            appointment_time,
-            service_type
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            "SELECT role FROM customers WHERE id = ?",
+            (authenticated_customer_id,)
         )
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            appointment.customer_id,
-            appointment.appointment_date,
-            appointment.appointment_time,
-            appointment.service_type
+
+        result = cursor.fetchone()
+
+    finally:
+        connection.close()
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Customer not found"
         )
+
+    role = result[0]
+
+    # Regular customers can only book for themselves
+    if (
+        appointment.customer_id != authenticated_customer_id
+        and role != "admin"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot create appointments for another customer."
+        )
+
+    # Book for the requested customer
+    result = book_appointment(
+        customer_id=appointment.customer_id,
+        appointment_date=appointment.appointment_date,
+        appointment_time=appointment.appointment_time,
+        service_type=appointment.service_type,
+        authenticated_customer_id=authenticated_customer_id
     )
 
-    connection.commit()
-    appointment_id = cursor.lastrowid
-    connection.close()
+    if not result["success"]:
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"]
+        )
 
     return {
         "message": "Appointment booked",
-        "appointment_id": appointment_id,
-        "appointment": appointment
+        "appointment_id": result["appointment_id"],
+        "appointment": result
     }
 
 @app.get("/appointments")
-def get_appointments():
+
+
+def get_appointments(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
     connection = get_connection()
-    cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT
-            appointments.id,
-            customers.name,
-            customers.vehicle,
-            appointments.appointment_date,
-            appointments.appointment_time,
-            appointments.service_type,
-            appointments.status
-        FROM appointments
-        JOIN customers
-            ON appointments.customer_id = customers.id
-    """)
+    try:
+        cursor = connection.cursor()
 
-    rows = cursor.fetchall()
-    connection.close()
+        # Get the authenticated customer's role
+        cursor.execute(
+            "SELECT role FROM customers WHERE id = ?",
+            (authenticated_customer_id,)
+        )
+
+        result = cursor.fetchone()
+
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Customer not found"
+            )
+
+        role = result[0]
+
+        query = """
+            SELECT
+                appointments.id,
+                customers.name,
+                customers.vehicle,
+                appointments.appointment_date,
+                appointments.appointment_time,
+                appointments.service_type,
+                appointments.status
+            FROM appointments
+            JOIN customers
+                ON appointments.customer_id = customers.id
+        """
+
+        # Administrators can view all appointments
+        if role == "admin":
+            cursor.execute(
+                query + """
+                ORDER BY
+                    appointments.appointment_date,
+                    appointments.appointment_time
+                """
+            )
+
+        # Regular customers can only view their own appointments
+        else:
+            cursor.execute(
+                query + """
+                WHERE appointments.customer_id = ?
+                ORDER BY
+                    appointments.appointment_date,
+                    appointments.appointment_time
+                """,
+                (authenticated_customer_id,)
+            )
+
+        rows = cursor.fetchall()
+
+    finally:
+        connection.close()
 
     appointments = []
 
@@ -238,7 +497,10 @@ def get_appointments():
     return {"appointments": appointments}
 
 @app.get("/test-claude")
-def test_claude():
+def test_claude(
+    authenticated_customer_id: int = Depends(require_admin)
+):
+
     message = client.messages.create(
         model="claude-sonnet-5",
         max_tokens=200,
@@ -254,8 +516,61 @@ def test_claude():
         "response": message.content[0].text
     }
 
+@app.get("/me")
+def get_me(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    connection = get_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT id, name, email, role
+            FROM customers
+            WHERE id = ?
+            """,
+            (authenticated_customer_id,)
+        )
+
+        customer = cursor.fetchone()
+
+    finally:
+        connection.close()
+
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists"
+        )
+
+    return {
+        "id": customer[0],
+        "name": customer[1],
+        "email": customer[2],
+        "role": customer[3]
+    }
+
 @app.post("/login")
-def login(request: LoginRequest):
+def login(request: LoginRequest, http_request: Request):
+    # Identify the client by its IP address.
+    client_ip = (
+        http_request.client.host
+        if http_request.client
+        else "unknown"
+    )
+
+    # Check the login rate limit before verifying credentials.
+    if not login_rate_limiter.allow_request(client_ip):
+        retry_after = login_rate_limiter.get_retry_after(client_ip)
+
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     customer_id = authenticate_customer(
         email=request.email,
         password=request.password
@@ -280,7 +595,181 @@ def chat(
     request: ChatRequest,
     authenticated_customer_id: int = Depends(get_current_customer)
 ):
-    return run_agent(
-        message=request.message,
-        authenticated_customer_id=authenticated_customer_id
+    # Apply the shared AI rate limit.
+    if not chat_rate_limiter.allow_request(authenticated_customer_id):
+        retry_after = chat_rate_limiter.get_retry_after(
+            authenticated_customer_id
+        )
+
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    with conversation_lock:
+        history = list(
+            conversation_histories.get(authenticated_customer_id, [])
+        )
+
+        result = run_agent(
+            message=request.message,
+            authenticated_customer_id=authenticated_customer_id,
+            conversation_history=list(history)
+        )
+
+        # Save only completed, successful conversations.
+        if is_successful_agent_response(result):
+            history.extend([
+                {"role": "user", "content": request.message},
+                {"role": "assistant", "content": result["response"]},
+            ])
+
+            conversation_histories[authenticated_customer_id] = (
+                history[-MAX_HISTORY_MESSAGES:]
+            )
+
+    return result
+
+@app.delete("/chat/history")
+def clear_chat_history(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    with conversation_lock:
+        conversation_histories.pop(authenticated_customer_id, None)
+
+    return {
+        "success": True,
+        "message": "Conversation history cleared."
+    }
+
+@app.post("/conversations", status_code=201)
+def start_conversation(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    conversation_id = create_conversation(
+        customer_id=authenticated_customer_id
     )
+
+    return {
+        "conversation_id": conversation_id,
+        "message": "Conversation created successfully."
+    }
+
+@app.get("/conversations")
+def list_conversations(
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    conversations = get_customer_conversations(
+        customer_id=authenticated_customer_id
+    )
+
+    return {
+        "conversations": conversations
+    }
+
+@app.get("/conversations/{conversation_id}/messages")
+def list_conversation_messages(
+    conversation_id: int,
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    if not conversation_belongs_to_customer(
+        conversation_id=conversation_id,
+        customer_id=authenticated_customer_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found"
+        )
+
+    messages = get_conversation_messages(
+        conversation_id=conversation_id,
+        customer_id=authenticated_customer_id
+    )
+
+    return {
+        "conversation_id": conversation_id,
+        "messages": messages
+    }
+
+@app.post("/conversations/{conversation_id}/chat")
+def conversation_chat(
+    conversation_id: int,
+    request: ChatRequest,
+    authenticated_customer_id: int = Depends(get_current_customer)
+):
+    # Verify conversation ownership before reading messages.
+    if not conversation_belongs_to_customer(
+        conversation_id=conversation_id,
+        customer_id=authenticated_customer_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation not found"
+        )
+
+        # Prevent excessive AI requests from the same customer
+    if not chat_rate_limiter.allow_request(authenticated_customer_id):
+        retry_after = chat_rate_limiter.get_retry_after(
+            authenticated_customer_id
+        )
+
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    # Load the conversation history from SQLite.
+    messages = get_conversation_messages(
+        conversation_id=conversation_id,
+        customer_id=authenticated_customer_id
+    )
+
+    # Only send the most recent messages to Claude.
+    history = messages[-MAX_HISTORY_MESSAGES:]
+
+    # Generate a response using the authenticated customer.
+    try:
+        result = run_agent(
+            message=request.message,
+            authenticated_customer_id=authenticated_customer_id,
+            conversation_history=list(history)
+        )
+
+    except Exception:
+        logger.exception(
+            "AI agent failed for conversation %s",
+            conversation_id
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail="The AI assistant is temporarily unavailable. Please try again later."
+        ) from None
+
+    # Save both messages only when the agent succeeds.
+    # Save both messages only when the agent succeeds.
+    if is_successful_agent_response(result):
+        try:
+            save_message_pair(
+                conversation_id=conversation_id,
+                user_message=request.message,
+                assistant_message=result["response"]
+            )
+
+        except sqlite3.Error:
+            logger.exception(
+                "Database error while saving conversation %s",
+                conversation_id
+            )
+
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to save the conversation. Please try again later."
+            ) from None
+
+    return {
+        **result,
+        "conversation_id": conversation_id
+    }

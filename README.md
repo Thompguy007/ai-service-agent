@@ -1,231 +1,92 @@
 # AI Service Agent
 
-A conversational AI service-booking agent built with FastAPI, Claude, and SQLite.
+A full-stack prototype for booking vehicle service through a conversational AI assistant. Customers sign in, manage appointments in chat, and see updates in their dashboard without reloading the page.
 
-The agent understands natural-language customer requests and can use backend tools to retrieve appointments, check availability, create bookings, reschedule appointments, and cancel appointments.
+## What you can try
 
-## Why I Built This
+- Sign in as a customer and view your appointments.
+- Ask the assistant to check availability, book a service, reschedule, or cancel an appointment. The dashboard re-fetches appointments after a chat response so changes such as a cancellation appear on the same page.
+- Start a conversation or reopen an earlier one. The API stores conversation history in SQLite and checks that it belongs to the signed-in customer.
+- The app has protected routes for customer, staff, and admin roles. The customer dashboard is functional. Staff and admin dashboard screens are placeholders, and the API already enforces admin access for customer management.
 
-I built this project to explore how LLM-based agents can move beyond generating text and safely perform actions in a real application.
+## How it works
 
-The project focuses on:
+The React and TypeScript frontend calls a FastAPI backend. The Python agent uses Anthropic Claude to select tools from a registry. Backend code authorizes actions against the authenticated customer and validates appointment dates and slots. A partial unique index in SQLite prevents two active bookings for the same slot.
 
-* LLM tool/function calling
-* Multi-step agent workflows
-* Safe tool execution
-* Backend guardrails
-* API and database integration
-* Error handling and debugging
-* Automated testing and agent evaluation
-* Structured logging and observability
-* CI with GitHub Actions
+The backend uses JWT authentication and Argon2 password hashing. Login and chat requests are rate-limited. The agent caps the number of tool steps per request, and its responses include execution metadata for debugging.
 
-## Architecture
+## Run locally on Windows
 
-```text
-Client
-  |
-  v
-FastAPI
-(main.py)
-  |
-  v
-AI Agent
-(agent.py)
-  |
-  |-- Claude API
-  |-- Multi-step agent loop
-  |-- Tool selection
-  |-- Tool registry / dispatcher
-  |-- Tool execution guardrails
-  |
-  v
-Agent Tools
-(tools.py)
-  |
-  |-- Get customer appointments
-  |-- Check available time slots
-  |-- Book appointment
-  |-- Reschedule appointment
-  |-- Cancel appointment
-  |
-  v
-Database Layer
-(database.py)
-  |
-  v
-SQLite
-```
-
-Claude decides which tool should be used, while the Python agent controls which tools are actually available and dispatches approved tool calls through a tool registry.
-
-This keeps orchestration separate from the implementation of individual tools and makes it easier to add additional tools without expanding a large `if/elif` routing chain.
-
-## Safety and Guardrails
-
-The LLM does not directly modify the database.
-
-Claude can request actions through tools, but the Python backend validates and performs the actual operation. Important business rules therefore remain outside the language model.
-
-Examples:
-
-* A time slot cannot be double-booked. This is enforced both by application-level validation and a database-level unique constraint for active bookings.
-* An appointment cannot be rescheduled to an occupied time slot.
-* Appointment dates and times are validated by the backend.
-* Bookings are restricted to supported appointment time slots.
-* Availability is calculated from the database rather than invented by the LLM.
-* Unknown tool calls are rejected safely.
-* Invalid or missing tool arguments are handled without crashing the agent.
-* Tool execution is restricted to functions registered by the backend.
-* The agent has a maximum number of execution steps and returns a safe fallback if it cannot complete the request.
-
-The backend therefore remains the source of truth even when the LLM decides which actions should be attempted.
-
-## Testing and Evaluation
-
-The project separates deterministic backend/agent tests from evaluations that use the real Claude API.
-
-### Deterministic tests
-
-The default test suite does not require an Anthropic API call and covers areas such as:
-
-* Available and unavailable appointment slots
-* Double-booking prevention
-* Database-level booking constraints
-* Rescheduling conflict prevention
-* Date and time validation
-* Allowed appointment time slots
-* Mocked agent responses
-* Mocked tool execution
-* Unknown tool calls
-* Missing or invalid tool arguments
-* Isolated database state between tests
-
-Run the deterministic test suite with:
-
-```bash
-pytest -v
-```
-
-Current result:
-
-```text
-12 passed, 8 deselected
-```
-
-### Claude evaluations
-
-A separate evaluation suite tests the behavior of the agent using the real Claude API.
-
-These scenarios include:
-
-* Retrieval of existing customer appointments
-* Paraphrased natural-language requests
-* Requests with missing information
-* Occupied booking slots
-* Appointment rescheduling
-* Chat endpoint behavior
-* Unknown-customer behavior
-* Safe handling of booking conflicts
-
-Run the live Claude evaluations with:
-
-```bash
-pytest -m eval -v
-```
-
-The project currently contains **20 tests in total: 12 deterministic tests and 8 live-Claude evaluation tests.**
-
-## Continuous Integration
-
-GitHub Actions automatically runs the deterministic test suite on pushes and pull requests.
-
-The CI pipeline:
-
-1. Checks out the repository
-2. Sets up Python 3.12
-3. Installs project dependencies
-4. Runs `pytest -v`
-
-Live Claude evaluations are excluded from the default CI suite so that automated tests remain deterministic and do not require an API key.
-
-## Tech Stack
-
-* Python
-* FastAPI
-* Anthropic Claude API
-* SQLite
-* Pytest
-* Pydantic
-* GitHub Actions
-
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Thompguy007/ai-service-agent.git
-cd ai-service-agent
-```
-
-### 2. Create a virtual environment
-
-```bash
-python -m venv .venv
-```
-
-Activate it on Windows:
+You need Python 3.12, Node.js 22.12+ (or Node.js 20.19+ on the 20.x line), and an Anthropic API key for live chat.
 
 ```powershell
-.venv\Scripts\activate
+git clone https://github.com/Thompguy007/ai-service-agent.git
+cd ai-service-agent
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-### 3. Install dependencies
+Open `.env`, set `ANTHROPIC_API_KEY` to your Anthropic key, and set `JWT_SECRET_KEY` to the generated value. The example uses a separate SQLite file named `portfolio_demo.db`.
 
-```bash
-pip install -r requirements.txt
+From the repository root, create a local demo login. Enter a temporary password at the prompt and use it when signing in.
+
+```powershell
+@'
+from getpass import getpass
+
+from auth import hash_password
+from database import create_database, get_connection
+
+create_database()
+password = getpass("Demo password: ")
+connection = get_connection()
+try:
+    with connection:
+        connection.execute(
+            """
+            INSERT INTO customers (name, phone, vehicle, email, password_hash)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(email) DO NOTHING
+            """,
+            ("Demo Customer", "00000000", "Demo Car", "demo@example.com",
+             hash_password(password)),
+        )
+finally:
+    connection.close()
+'@ | .\.venv\Scripts\python.exe -
+
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload
 ```
 
-### 4. Configure the Claude API key
+If the demo account already exists, use its original password. In a second terminal, start the frontend from the repository root.
 
-Copy `.env.example` to `.env` and add your Anthropic API key:
-
-```text
-ANTHROPIC_API_KEY=your_api_key_here
+```powershell
+cd frontend
+npm.cmd ci
+npm.cmd run dev
 ```
 
-Never commit the `.env` file.
+Open [the customer app](http://localhost:5173) and sign in as `demo@example.com`. Ask the assistant what times are available on a future weekday, then book or cancel a service to see the dashboard update. The [FastAPI docs](http://127.0.0.1:8000/docs) list the API endpoints.
 
-### 5. Seed the demo database
+## Tests and build
 
-Create the demo customers and appointments:
+Run the default backend tests from the repository root. They cover authentication and authorization, appointment constraints, conversation history, rate limiting, and mocked agent behavior. GitHub Actions runs the same suite with test-only configuration.
 
-```bash
-python seed.py
+```powershell
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-### 6. Start the API
+The live Claude evaluations are opt-in and require an Anthropic key. Run them against a local demo or test database.
 
-```bash
-fastapi dev main.py
+```powershell
+.\.venv\Scripts\python.exe -m pytest -m eval -v
 ```
 
-Open the interactive API documentation at:
+Run the frontend checks from `frontend`.
 
-```text
-http://127.0.0.1:8000/docs
+```powershell
+npm.cmd run lint
+npm.cmd run build
 ```
-
-## Example
-
-A customer can send a natural-language request such as:
-
-```text
-Hi, I'm Mike. What appointments do I have?
-```
-
-The agent determines that appointment data is required, selects the appropriate tool, and the tool registry dispatches the request to the corresponding Python function.
-
-The tool retrieves the data from SQLite and returns the result to the agent, which uses it to generate a natural-language response.
-
-For requests that modify data, the backend validates the operation before changing the database.

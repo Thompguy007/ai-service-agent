@@ -82,6 +82,22 @@ def test_customer_can_cancel_own_appointment():
 def test_customer_cannot_reschedule_another_customers_appointment():
     # Mike (customer 1) attempts to reschedule Tom's appointment (ID 2)
 
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    # Read the original appointment before attempting any changes.
+    cursor.execute("""
+        SELECT customer_id, appointment_date, appointment_time
+        FROM appointments
+        WHERE id = ?
+    """, (2,))
+
+    original_appointment = cursor.fetchone()
+    connection.close()
+
+    assert original_appointment is not None
+    assert original_appointment[0] == 2  # Tom owns this appointment
+
     result = reschedule_appointment(
         appointment_id=2,
         new_date="2026-10-07",
@@ -91,27 +107,38 @@ def test_customer_cannot_reschedule_another_customers_appointment():
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT appointment_date, appointment_time
+    cursor.execute("""
+        SELECT customer_id, appointment_date, appointment_time
         FROM appointments
         WHERE id = ?
-        """,
-        (2,)
-    )
+    """, (2,))
 
-    appointment = cursor.fetchone()
+    updated_appointment = cursor.fetchone()
     connection.close()
 
-    # Tom's appointment must remain unchanged
-    assert appointment == ("2026-10-05", "14:00")
+    # Appointment must remain completely unchanged.
+    assert updated_appointment == original_appointment
 
-    # Rescheduling without verified identity must be rejected
+    # Rescheduling without verified identity must be rejected.
     assert result["success"] is False
 
 def test_customer_cannot_reschedule_another_customers_appointment_with_identity():
-    # Mike = customer 1
-    # Tom owns appointment 2
+    # Mike = customer 1, Tom = customer 2
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT customer_id, appointment_date, appointment_time
+        FROM appointments
+        WHERE id = ?
+    """, (2,))
+
+    original_appointment = cursor.fetchone()
+    connection.close()
+
+    assert original_appointment is not None
+    assert original_appointment[0] == 2
 
     result = reschedule_appointment(
         appointment_id=2,
@@ -123,22 +150,19 @@ def test_customer_cannot_reschedule_another_customers_appointment_with_identity(
     connection = get_connection()
     cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT appointment_date, appointment_time
+    cursor.execute("""
+        SELECT customer_id, appointment_date, appointment_time
         FROM appointments
         WHERE id = ?
-        """,
-        (2,)
-    )
+    """, (2,))
 
-    appointment = cursor.fetchone()
+    updated_appointment = cursor.fetchone()
     connection.close()
 
-    # Tom's appointment must remain unchanged
-    assert appointment == ("2026-10-05", "14:00")
+    # Tom's appointment must remain unchanged.
+    assert updated_appointment == original_appointment
 
-    # Mike must not be allowed to reschedule Tom's appointment
+    # Mike must not be allowed to modify Tom's appointment.
     assert result["success"] is False
 
 def test_customer_can_reschedule_own_appointment():

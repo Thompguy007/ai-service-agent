@@ -69,6 +69,11 @@ def test_chat_rejects_expired_token():
 def test_chat_accepts_valid_token():
     token = create_access_token(customer_id=1)
 
+    # Ensure previous tests do not affect this test
+    from main import conversation_histories
+
+    conversation_histories.clear()
+
     with patch("main.run_agent") as mock_agent:
         mock_agent.return_value = {
             "response": "Hello Mike!",
@@ -89,8 +94,11 @@ def test_chat_accepts_valid_token():
 
         mock_agent.assert_called_once_with(
             message="Hello!",
-            authenticated_customer_id=1
+            authenticated_customer_id=1,
+            conversation_history=[]
         )
+
+        assert response.json()["response"] == "Hello Mike!"
 
 def test_chat_rejects_nonexistent_customer():
     token = create_access_token(customer_id=999999)
